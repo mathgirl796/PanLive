@@ -106,3 +106,4 @@ void bns_destroy(bntseq_t *bns)
 	}
 }
 
+

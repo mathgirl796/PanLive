@@ -43,6 +43,7 @@ typedef struct {
 	uint32_t gi;
 	int32_t is_alt;
 	char *name, *anno;
+	int taxid;
 } bntann1_t;
 
 typedef struct {
@@ -94,6 +95,12 @@ struct bntseq_t{
 		return mid;
 	}
 
+	void parse_taxid() {
+		for (int i = 0; i < n_seqs; ++i) {
+			anns[i].taxid = atoi(anns[i].name + 13);
+		}
+	}
+
 };
 
 bntseq_t *bns_restore_core(const char *ann_filename, const char* amb_filename, const char* pac_filename);
@@ -134,7 +141,7 @@ public:
 		bwtint_t offset = 0;
 		while (size) {
 			int x = bufsize < size? bufsize : size;
-			if ((x = err_fread_noeof(a + offset, 1, x, fp)) == 0) break;
+			if ((x = err_fread_noeof((char*)a + offset, 1, x, fp)) == 0) break;
 			size -= x; offset += x;
 		}
 		return offset;
