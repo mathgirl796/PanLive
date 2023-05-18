@@ -18,11 +18,9 @@ public:
     }
     void load_taxonomy(const std::string &nodes_path)
     {
-        std::vector<int> result;
         std::ifstream file(nodes_path);
         if (!file.is_open())
         {
-            parent = result;
             return;
         }
         std::string line;
@@ -34,14 +32,25 @@ public:
             int index = std::stoi(token);
             std::getline(iss, token, '|');
             int value = std::stoi(token);
-            if (index >= result.size())
+            int min_table_size = index > value ? index : value;
+            if (min_table_size >= parent.size())
             {
-                result.resize(index + 1);
+                parent.resize(min_table_size + 1);
             }
-            result[index] = value;
+            parent[index] = value;
+            // debug
+            // if (index == 2559073) {
+            //     fprintf(stderr, "son:%d, parent:%d\n", index, parent[2559073]);
+            // }
+            if (value == 0) {
+                fprintf(stderr, "taxonomy build err: son:%d, parent:%d", index, value);
+                exit(1);
+            }
         }
-        result[1] = -1; // 用来做lca创建set时候的休止符
-        parent = result;
+        // fprintf(stderr, "son:%d, parent:%d\n", 2559073, parent[2559073]);
+        // fprintf(stderr, "son:%d, parent:%d\n", 31957, parent[31957]);
+        // exit(1);
+        parent[1] = -1; // 用来做lca创建set时候的休止符
         return;
     }
 
@@ -50,13 +59,19 @@ public:
     // 131567:{2(bacteria), 2157(archaea), 2759(eukaryota)}
     int lca(int p, int q)
     {
+        int pp = p, qq = q;
         std::unordered_set<int> ancestors;
         while (p != -1)
         {
+            if (p == q) return p;
             ancestors.insert(p);
             p = parent[p];
+            if(p == 0) {
+                fprintf(stderr, "lca error, parent of %d is but should not be 0, maybe a newer version of nodes.dmp can solve this problem.\n", pp);
+                exit(1);
+            }
         }
-        while (!ancestors.count(q))
+        while (!ancestors.count(q) && q != -1)
         {
             q = parent[q];
         }

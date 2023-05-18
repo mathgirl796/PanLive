@@ -95,9 +95,10 @@ struct bntseq_t{
 		return mid;
 	}
 
-	void parse_taxid() {
+	// if name is taxid|123（some non digit delemeters）xx, then param is 6
+	void parse_taxid(int taxid_start_pos_in_name) {
 		for (int i = 0; i < n_seqs; ++i) {
-			anns[i].taxid = atoi(anns[i].name + 13);
+			anns[i].taxid = atoi(anns[i].name + taxid_start_pos_in_name);
 		}
 	}
 

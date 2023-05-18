@@ -14,11 +14,11 @@ int data_per_block;
 int read_len;
 int sa_threshold;
 int match_threshold;
-char *input_dir = "viral_20230330/shit1";
-char *idx_path = "viral_20230330/index/viral.fna";
-char *tmp_dir = "./";
-char *output_path = "viral_20230330/output.txt";
-char *nodes_path = "viral_20230330/taxonomy/nodes.dmp";
+char *input_dir;
+char *idx_path;
+char *tmp_dir;
+char *output_path;
+char *nodes_path;
 
 // program used global vals
 int step_num = 3;
@@ -32,6 +32,7 @@ typedef struct Manager
     bwtint_t *kl;
     uint32_t *taxon;
     uint8_t *match_len;
+    uint8_t *max_match_len;
     int num;
     void init()
     {
@@ -40,6 +41,7 @@ typedef struct Manager
         this->kl = (bwtint_t *)xcalloc(data_per_manager * 2, sizeof(bwtint_t));
         this->taxon = (uint32_t *)xcalloc(data_per_manager, sizeof(int));
         this->match_len = (uint8_t *)xcalloc(data_per_manager, sizeof(uint8_t));
+        this->max_match_len = (uint8_t *)xcalloc(data_per_manager, sizeof(uint8_t));
     }
     void set_kl(int i, bwtint_t k, bwtint_t l)
     {
@@ -68,7 +70,7 @@ typedef struct Shared
         this->managers = (Manager **)xcalloc(step_num, sizeof(Manager *));
         this->bwt_idx = (BWT_IDX_loader *)xcalloc(1, sizeof(BWT_IDX_loader));
         this->bwt_idx->restore_idx(idx_path, true, true, true, true);
-        this->bwt_idx->bns->parse_taxid();
+        this->bwt_idx->bns->parse_taxid(0);
         this->taxonomy = (Taxonomy *)xcalloc(1, sizeof(Taxonomy));
         this->taxonomy->load_taxonomy(nodes_path);
         for (int i = 0; i < step_num; ++i)

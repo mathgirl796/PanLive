@@ -20,6 +20,7 @@ void *load_data(Shared *shared, int index)
         xread(m->kl, sizeof(bwtint_t), seq_num * 2, shared->ftmp_last);
         xread(m->taxon, sizeof(uint32_t), seq_num, shared->ftmp_last);
         xread(m->match_len, sizeof(uint8_t), seq_num, shared->ftmp_last);
+        xread(m->max_match_len, sizeof(uint8_t), seq_num, shared->ftmp_last);
     }
     else
     {
@@ -29,6 +30,7 @@ void *load_data(Shared *shared, int index)
             m->set_kl(i, 0, shared->bwt_idx->seq_len);
             m->taxon[i] = 0;
             m->match_len[i] = 0;
+            m->max_match_len[i] = 0;
         }
     }
     // 判断是否为最后一块数据
@@ -59,19 +61,34 @@ void occ_sa_work(void *data, long i, int worker_id)
     Taxonomy *taxonomy = shared->taxonomy;
     int index = worker_data->manager_index;
 
-    bool verbose = false; if (index == 0 && i == 0) verbose = true; // debug
+    bool verbose = false; if (index == 0 && i == 123) verbose = true; // debug
+    if (verbose) fprintf(stderr, "index:%d, i:%ld\n", index, i);
 
-    bool sa;
+    bool sa, error;
     bwtint_t k, l, ok, ol, sa_start, sa_end;
     uint8_t c;
     m->get_kl(i, &k, &l);
     c = 3-nst_nt4_table[m->seq[i]];
 
-    bwt_idx->bwt_2occ(k, l, c, &ok, &ol);
-    ok = bwt_idx->L2[c] + ok;
-    ol = bwt_idx->L2[c] + ol;
-    sa = false;
-    if (ok < ol)
+    if (verbose) { fprintf(stderr, "!before occ. k:%ld l:%ld base:%c\t", k, l, m->seq[i]); }
+    // 延申一个碱基
+    if (c > 3) {
+        error = true;
+    }
+    else {
+        error = false;
+        bwt_idx->bwt_2occ(k, l, c, &ok, &ol);
+        ok = bwt_idx->L2[c] + ok;
+        ol = bwt_idx->L2[c] + ol;
+    }
+
+    if (verbose) { fprintf(stderr, "!after occ. ok:%ld ol:%ld\t", ok, ol); }
+
+    // 判断是否需要进行sa
+    if (error == true || ok >= ol) {
+        { sa = true; sa_start = k + 1; sa_end = l + 1; }
+    }
+    else if (ok < ol)
     {
         // 仍能匹配
         m->match_len[i] += 1;
@@ -79,32 +96,44 @@ void occ_sa_work(void *data, long i, int worker_id)
         // 最后一轮执行sa
         if (cycle == read_len - 1) { sa = true; sa_start = ok + 1; sa_end = ol + 1; } 
     }
-    else if (ok >= ol)
-    {
-        // bwt卡死，进行SA，查找lca
-        { sa = true; sa_start = k + 1; sa_end = l + 1; }
+    else {
+        fprintf(stderr, "!occ error. index:%ld i:%ld\t", index, i);
+        exit(1);
     }
+
+    if (verbose) { fprintf(stderr, "!bwt extend done. ok:%ld ol:%ld\n", ok, ol); }
     if (sa) {
         // 一定情况下会跳过SA
         if (sa_end - sa_start <= sa_threshold && m->match_len[i] >= match_threshold) {
-            for (int idx = sa_start; idx < sa_end; idx ++) {
+            if (verbose) 
+            { fprintf(stderr, "!bwt pos:%ld - %ld, match:%d, index:%d, i:%ld\n", sa_start, sa_end, m->match_len[i], index, i); }
+            for (bwtint_t idx = sa_start; idx < sa_end; idx ++) {
+                if (verbose) 
+                { fprintf(stderr, "!!!bwt pos:%ld\t", idx); }
                 bwtint_t pos = bwt_idx->bwt_sa(idx);
                 bool is_rev;
                 int64_t depos = bwt_idx->sa_depos(pos, is_rev);
+                if (verbose) { fprintf(stderr, "!!!sadepos:done\t"); }
                 uint32_t offset;
                 int rid = bns->bns_pos2rid(depos, offset);
+                if (verbose) { fprintf(stderr, "!!!pos2rid:done\t"); }
                 int taxon = bns->anns[rid].taxid;
+                if (verbose) { fprintf(stderr, "!!!old_tax:%d,new_tax:%d\t",m->taxon[i],taxon); }
                 m->taxon[i] = m->taxon[i] == 0 ? taxon : taxonomy->lca(taxon, m->taxon[i]);
-                if (verbose) { fprintf(stderr, "!!!!!!SA:%ld\t%d\t%d\t%s\n", depos, is_rev, taxon, bns->anns[rid].name); }
+                if (verbose) { fprintf(stderr, "!!!lca:done\t"); }
+                if (verbose) 
+                { fprintf(stderr, "!depos:%ld\tisrev:%d\ttaxon:%d\trefname:%s\n", depos, is_rev, m->taxon[i], bns->anns[rid].name); }
             }
         }
         // 无论是否执行SA，都要重置一些信息，重新开始搜索
+        m->max_match_len[i] = m->max_match_len[i] > m->match_len[i] ? m->max_match_len[i] : m->match_len[i];
         m->match_len[i] = 0;
         m->set_kl(i, 0, bwt_idx->seq_len);
     }
     if (verbose)
     {
-        fprintf(stderr, "index:%d\ti:%ld\tm:%d\tbase:%c\ttaxon:%d\tk:%lu\tl:%lu\tok:%lu\tol:%lu\t\n", index, i, m->match_len[i], m->seq[i], m->taxon[i], k, l, ok, ol);
+        fprintf(stderr, "match_len:%d\ttaxon:%d\t\n", m->match_len[i], m->taxon[i]);
+        // exit(0);
     }
 }
 void occ_sa_block_work(void *data, long block_id, int worker_id)
@@ -144,6 +173,7 @@ void *dump_temp(Shared *shared, int index)
     err_fwrite(m->kl, sizeof(bwtint_t), m->num * 2, shared->ftmp);
     err_fwrite(m->taxon, sizeof(uint32_t), m->num, shared->ftmp);
     err_fwrite(m->match_len, sizeof(uint8_t), m->num, shared->ftmp);
+    err_fwrite(m->max_match_len, sizeof(uint8_t), m->num, shared->ftmp);
     // fprintf(stderr, "dump index:%d\ttid:%d\t\n", index, tid);
 
     if (cycle == read_len - 1)
@@ -177,6 +207,10 @@ void *pipeline(void *shared, int step, void *data, int index)
 using namespace std;
 int main(int argc, char **argv)
 {
+    double start_cpu_time = cputime(), start_real_time = realtime();
+    double __cpu_time, __real_time;
+    __cpu_time = cputime(); __real_time = realtime();
+
     cmdline::parser a;
     a.add<int>("thread_num", 'j', "thread num", false, 4);
     a.add<int>("data_per_manager", 'm', "data per manager", false, 5000);
@@ -203,7 +237,7 @@ int main(int argc, char **argv)
     output_path = strdup(a.get<string>("output_path").c_str());
     nodes_path = strdup(a.get<string>("nodes_path").c_str());
 
-    printf("Hello world!\n");
+    fprintf(stderr, "Hello world!\n");
     Shared shared;
     shared.init();
     char fn[1024];
@@ -212,9 +246,13 @@ int main(int argc, char **argv)
     sprintf(fn, "%s", output_path);
     shared.foutput = xopen(fn, "wb");
 
+    fprintf(stderr, "init over: CPU time: %.3f sec; real time: %.3f sec\n", cputime() - __cpu_time, realtime() - __real_time);
     for (cycle = 0; cycle < read_len; cycle++)
     {
-        fprintf(stderr, "[main] cycle %d\n", cycle);
+        __cpu_time = cputime(); __real_time = realtime();
+        char log_title[1024]; 
+        sprintf(log_title, "[cycle %d]", cycle);
+        fprintf(stderr, "%s start.\n", log_title);
         // open new read and new qual
         sprintf(fn, "%s/S_%03d.bin.gz", input_dir, cycle);
         shared.fseq = xzopen(fn, "rb");
@@ -246,6 +284,7 @@ int main(int argc, char **argv)
             // fprintf(stderr, "[main] remove %s\n", fn);
             xrm(fn);
         }
+        fprintf(stderr, "%s end. CPU time: %.3f sec; real time: %.3f sec\n", log_title, cputime() - __cpu_time, realtime() - __real_time);
     }
     // delete final cycle tmp file
     sprintf(fn, "%s/%03d.tmp", tmp_dir, cycle - 1);
@@ -254,7 +293,9 @@ int main(int argc, char **argv)
     // release resource
     err_fclose(shared.foutput);
 
+    fprintf(stderr, "[ALL] end. total CPU time: %.3f sec; real time: %.3f sec\n", cputime() - start_cpu_time, realtime() - start_real_time);
+
     // stop program
-    printf("Bye bye world!\n");
+    fprintf(stderr, "Bye bye world!\n");
     return 0;
 }
