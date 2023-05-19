@@ -64,7 +64,7 @@ void occ_sa_work(void *data, long i, int worker_id)
     bool verbose = false; if (index == 0 && i == 123) verbose = true; // debug
     if (verbose) fprintf(stderr, "index:%d, i:%ld\n", index, i);
 
-    bool sa, error;
+    bool sa = false, error = false;
     bwtint_t k, l, ok, ol, sa_start, sa_end;
     uint8_t c;
     m->get_kl(i, &k, &l);
@@ -76,29 +76,44 @@ void occ_sa_work(void *data, long i, int worker_id)
         error = true;
     }
     else {
-        error = false;
         bwt_idx->bwt_2occ(k, l, c, &ok, &ol);
         ok = bwt_idx->L2[c] + ok;
         ol = bwt_idx->L2[c] + ol;
+        if (ok >= ol) {
+            error = true;
+        }
+    }
+
+    // 如果error，再给一次机会
+    if (error) {
+        bwtint_t cntk[4]; bwtint_t cntl[4];
+        bwt_idx->bwt_2occ4(k, l, cntk, cntl);
+        int path_N = 0;
+        for(int j = 0; j < 4; j++){
+            if(cntk[j] < cntl[j]){
+                path_N++;
+                ok = bwt_idx->L2[j] + cntk[j];
+                ol = bwt_idx->L2[j] + cntl[j];
+            }
+        }
+        if (path_N == 1) {
+            error = false;
+        }
     }
 
     if (verbose) { fprintf(stderr, "!after occ. ok:%ld ol:%ld\t", ok, ol); }
 
     // 判断是否需要进行sa
-    if (error == true || ok >= ol) {
+    if (error == true) { // 失配，可能由于N或者bwt无匹配导致
         { sa = true; sa_start = k + 1; sa_end = l + 1; }
     }
-    else if (ok < ol)
+    else
     {
         // 仍能匹配
         m->match_len[i] += 1;
         m->set_kl(i, ok, ol);
         // 最后一轮执行sa
         if (cycle == read_len - 1) { sa = true; sa_start = ok + 1; sa_end = ol + 1; } 
-    }
-    else {
-        fprintf(stderr, "!occ error. index:%ld i:%ld\t", index, i);
-        exit(1);
     }
 
     if (verbose) { fprintf(stderr, "!bwt extend done. ok:%ld ol:%ld\n", ok, ol); }
@@ -119,7 +134,7 @@ void occ_sa_work(void *data, long i, int worker_id)
                 if (verbose) { fprintf(stderr, "!!!pos2rid:done\t"); }
                 int taxon = bns->anns[rid].taxid;
                 if (verbose) { fprintf(stderr, "!!!old_tax:%d,new_tax:%d\t",m->taxon[i],taxon); }
-                m->taxon[i] = m->taxon[i] == 0 ? taxon : taxonomy->lca(taxon, m->taxon[i]);
+                m->taxon[i] = m->taxon[i] == 0 ? taxon : taxonomy->lca2(taxon, m->taxon[i]);
                 if (verbose) { fprintf(stderr, "!!!lca:done\t"); }
                 if (verbose) 
                 { fprintf(stderr, "!depos:%ld\tisrev:%d\ttaxon:%d\trefname:%s\n", depos, is_rev, m->taxon[i], bns->anns[rid].name); }

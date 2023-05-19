@@ -63,7 +63,30 @@ public:
         std::unordered_set<int> ancestors;
         while (p != -1)
         {
-            if (p == q) return p;
+            if (p == q) return q; // 找到祖宗了，返回祖宗
+            ancestors.insert(p);
+            p = parent[p];
+            if(p == 0) {
+                fprintf(stderr, "lca error, parent of %d is but should not be 0, maybe a newer version of nodes.dmp can solve this problem.\n", pp);
+                exit(1);
+            }
+        }
+        while (!ancestors.count(q) && q != -1)
+        {
+            q = parent[q];
+        }
+        return q;
+    }
+
+    // lca:  如果p和q是祖孙关系，那么返回祖宗
+    // lca2: 如果p和q是祖孙关系，那么返回孙子
+    int lca2(int p, int q)
+    {
+        int pp = p, qq = q;
+        std::unordered_set<int> ancestors;
+        while (p != -1) // p 不断向上找祖宗
+        {
+            if (p == q) return pp; // 找到祖宗了，返回孙子
             ancestors.insert(p);
             p = parent[p];
             if(p == 0) {
